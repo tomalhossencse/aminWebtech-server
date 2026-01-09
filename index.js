@@ -33,6 +33,12 @@ async function run() {
     const blogsCollection = db.collection("blogs");
     const teamMembersCollection = db.collection("teamMembers");
     const testimonialsCollection = db.collection("testimonials");
+    const contactsCollection = db.collection("contacts");
+
+    // Analytics Collections
+    const analyticsCollection = db.collection("analytics");
+    const visitorsCollection = db.collection("visitors");
+    const pageViewsCollection = db.collection("pageViews");
 
     // Seed testimonials data if collection is empty
     const testimonialsCount = await testimonialsCollection.countDocuments();
@@ -114,10 +120,54 @@ async function run() {
       console.log("✅ Sample testimonials data seeded successfully");
     }
 
-    // Analytics Collections
-    const analyticsCollection = db.collection("analytics");
-    const visitorsCollection = db.collection("visitors");
-    const pageViewsCollection = db.collection("pageViews");
+    // Seed contacts data if collection is empty (for testing)
+    const contactsCount = await contactsCollection.countDocuments();
+    if (contactsCount === 0) {
+      const sampleContacts = [
+        {
+          name: "Akash Rahman",
+          email: "akash@gmail.com",
+          phone: "01814726978",
+          subject: "Need a website",
+          message:
+            "Hello, I am looking for a professional website for my business. Can you help me with this project?",
+          status: "read",
+          createdAt: new Date("2024-12-29"),
+          updatedAt: new Date("2024-12-29"),
+          readAt: new Date("2024-12-29"),
+          repliedAt: null,
+        },
+        {
+          name: "Sarah Johnson",
+          email: "sarah@example.com",
+          phone: "01712345678",
+          subject: "Project Inquiry",
+          message:
+            "I would like to discuss a new project for my startup. We need a complete web solution with modern design.",
+          status: "new",
+          createdAt: new Date("2024-12-28"),
+          updatedAt: new Date("2024-12-28"),
+          readAt: null,
+          repliedAt: null,
+        },
+        {
+          name: "Mike Chen",
+          email: "mike@company.com",
+          phone: "01987654321",
+          subject: "Support Request",
+          message:
+            "Having issues with the current system. The dashboard is not loading properly and we need urgent assistance.",
+          status: "replied",
+          createdAt: new Date("2024-12-27"),
+          updatedAt: new Date("2024-12-27"),
+          readAt: new Date("2024-12-27"),
+          repliedAt: new Date("2024-12-27"),
+        },
+      ];
+
+      await contactsCollection.insertMany(sampleContacts);
+      console.log("✅ Sample contacts data seeded successfully");
+    }
 
     // -----------------------user apis---------------
     // GET user
@@ -839,6 +889,315 @@ async function run() {
         res
           .status(500)
           .send({ error: "Failed to update testimonial active status" });
+      }
+    });
+
+    // Test endpoint for contacts
+    app.get("/api/contacts/test", (req, res) => {
+      res.send({ message: "Contacts API is working!", timestamp: new Date() });
+    });
+
+    // ----------------Contacts Related API -----------------
+    // GET contacts with pagination and filters
+    app.get("/api/contacts", async (req, res) => {
+      try {
+        console.log("📞 GET /api/contacts - Request received");
+
+        const { page = 1, limit = 10, search = "", status = "" } = req.query;
+
+        console.log("Query params:", { page, limit, search, status });
+
+        const skip = (parseInt(page) - 1) * parseInt(limit);
+
+        // Build filter query
+        let filter = {};
+
+        if (search) {
+          filter.$or = [
+            { name: { $regex: search, $options: "i" } },
+            { email: { $regex: search, $options: "i" } },
+            { subject: { $regex: search, $options: "i" } },
+            { message: { $regex: search, $options: "i" } },
+          ];
+        }
+
+        if (status && status !== "all") {
+          filter.status = status;
+        }
+
+        console.log("Filter:", filter);
+
+        // Check if collection exists and has data
+        const collectionExists = await contactsCollection.countDocuments();
+        console.log("Contacts collection document count:", collectionExists);
+
+        // Get contacts with pagination
+        const contacts = await contactsCollection
+          .find(filter)
+          .sort({ createdAt: -1 })
+          .skip(skip)
+          .limit(parseInt(limit))
+          .toArray();
+
+        console.log("Found contacts:", contacts.length);
+
+        // Get total count for pagination
+        const total = await contactsCollection.countDocuments(filter);
+
+        // Get stats
+        const stats = {
+          total: await contactsCollection.countDocuments(),
+          new: await contactsCollection.countDocuments({ status: "new" }),
+          read: await contactsCollection.countDocuments({ status: "read" }),
+          replied: await contactsCollection.countDocuments({
+            status: "replied",
+          }),
+          spam: await contactsCollection.countDocuments({ status: "spam" }),
+        };
+
+        console.log("Stats:", stats);
+
+        const response = {
+          contacts,
+          total,
+          page: parseInt(page),
+          limit: parseInt(limit),
+          totalPages: Math.ceil(total / parseInt(limit)),
+          stats,
+        };
+
+        console.log("✅ Sending response:", response);
+        res.send(response);
+      } catch (error) {
+        console.error("❌ Get contacts error:", error);
+        console.error("Error stack:", error.stack);
+        res.status(500).send({
+          error: "Failed to fetch contacts",
+          details: error.message,
+          stack:
+            process.env.NODE_ENV === "development" ? error.stack : undefined,
+        });
+      }
+    });
+
+    // GET single contact by ID
+    app.get("/api/contacts/:id", async (req, res) => {
+      try {
+        const { id } = req.params;
+        const contact = await contactsCollection.findOne({
+          _id: new ObjectId(id),
+        });
+
+        if (!contact) {
+          return res.status(404).send({ error: "Contact not found" });
+        }
+
+        res.send(contact);
+      } catch (error) {
+        console.error("Get contact error:", error);
+        res.status(500).send({ error: "Failed to fetch contact" });
+      }
+    });
+
+    // POST create new contact (from contact form)
+    app.post("/api/contacts", async (req, res) => {
+      try {
+        console.log("📝 POST /api/contacts - Request received");
+        console.log("Request body:", req.body);
+
+        const contact = {
+          ...req.body,
+          status: "new",
+          createdAt: new Date(),
+          updatedAt: new Date(),
+          readAt: null,
+          repliedAt: null,
+        };
+
+        console.log("Contact to insert:", contact);
+
+        const result = await contactsCollection.insertOne(contact);
+        console.log("Insert result:", result);
+
+        // Return the created contact with the new ID
+        const createdContact = await contactsCollection.findOne({
+          _id: result.insertedId,
+        });
+        console.log("✅ Created contact:", createdContact);
+
+        res.send(createdContact);
+      } catch (error) {
+        console.error("❌ Create contact error:", error);
+        console.error("Error stack:", error.stack);
+        res.status(500).send({
+          error: "Failed to create contact",
+          details: error.message,
+          stack:
+            process.env.NODE_ENV === "development" ? error.stack : undefined,
+        });
+      }
+    });
+
+    // PUT update contact status
+    app.put("/api/contacts/:id/status", async (req, res) => {
+      try {
+        const { id } = req.params;
+        const { status } = req.body;
+
+        const updateData = {
+          status: status,
+          updatedAt: new Date(),
+        };
+
+        // Add timestamp for specific status changes
+        if (
+          status === "read" &&
+          !(await contactsCollection.findOne({
+            _id: new ObjectId(id),
+            readAt: { $exists: true },
+          }))
+        ) {
+          updateData.readAt = new Date();
+        }
+        if (status === "replied") {
+          updateData.repliedAt = new Date();
+        }
+
+        const result = await contactsCollection.updateOne(
+          { _id: new ObjectId(id) },
+          { $set: updateData }
+        );
+
+        if (result.matchedCount === 0) {
+          return res.status(404).send({ error: "Contact not found" });
+        }
+
+        // Return the updated contact
+        const updatedContact = await contactsCollection.findOne({
+          _id: new ObjectId(id),
+        });
+        res.send(updatedContact);
+      } catch (error) {
+        console.error("Update contact status error:", error);
+        res.status(500).send({ error: "Failed to update contact status" });
+      }
+    });
+
+    // DELETE contact
+    app.delete("/api/contacts/:id", async (req, res) => {
+      try {
+        const { id } = req.params;
+        const result = await contactsCollection.deleteOne({
+          _id: new ObjectId(id),
+        });
+
+        if (result.deletedCount === 0) {
+          return res.status(404).send({ error: "Contact not found" });
+        }
+
+        res.send({ message: "Contact deleted successfully" });
+      } catch (error) {
+        console.error("Delete contact error:", error);
+        res.status(500).send({ error: "Failed to delete contact" });
+      }
+    });
+
+    // GET contact stats
+    app.get("/api/contacts/stats", async (req, res) => {
+      try {
+        const stats = {
+          total: await contactsCollection.countDocuments(),
+          new: await contactsCollection.countDocuments({ status: "new" }),
+          read: await contactsCollection.countDocuments({ status: "read" }),
+          replied: await contactsCollection.countDocuments({
+            status: "replied",
+          }),
+          spam: await contactsCollection.countDocuments({ status: "spam" }),
+        };
+
+        res.send(stats);
+      } catch (error) {
+        console.error("Get contact stats error:", error);
+        res.status(500).send({ error: "Failed to fetch contact stats" });
+      }
+    });
+
+    // POST reply to contact
+    app.post("/api/contacts/:id/reply", async (req, res) => {
+      try {
+        console.log("📧 POST /api/contacts/:id/reply - Request received");
+        const { id } = req.params;
+        const { message, adminEmail = "admin@aminwebtech.com" } = req.body;
+
+        console.log("Reply data:", { id, message, adminEmail });
+
+        // Get the contact first
+        const contact = await contactsCollection.findOne({
+          _id: new ObjectId(id),
+        });
+
+        if (!contact) {
+          return res.status(404).send({ error: "Contact not found" });
+        }
+
+        // In a real application, you would send an actual email here
+        // For now, we'll simulate the email sending and store the reply
+        const replyData = {
+          contactId: id,
+          adminEmail,
+          replyMessage: message,
+          sentAt: new Date(),
+          recipientEmail: contact.email,
+          recipientName: contact.name,
+          originalSubject: contact.subject,
+        };
+
+        // Store the reply in a replies collection (optional)
+        // await repliesCollection.insertOne(replyData);
+
+        // Update the contact status to 'replied' and add reply timestamp
+        await contactsCollection.updateOne(
+          { _id: new ObjectId(id) },
+          {
+            $set: {
+              status: "replied",
+              repliedAt: new Date(),
+              lastReply: {
+                message,
+                sentAt: new Date(),
+                adminEmail,
+              },
+              updatedAt: new Date(),
+            },
+          }
+        );
+
+        console.log("✅ Reply sent and contact updated");
+
+        // In a real application, integrate with email service like:
+        // - SendGrid
+        // - Mailgun
+        // - AWS SES
+        // - Nodemailer with SMTP
+
+        res.send({
+          success: true,
+          message: "Reply sent successfully",
+          replyData: {
+            ...replyData,
+            // Don't send sensitive data back
+            adminEmail: undefined,
+          },
+        });
+      } catch (error) {
+        console.error("❌ Reply to contact error:", error);
+        console.error("Error stack:", error.stack);
+        res.status(500).send({
+          error: "Failed to send reply",
+          details: error.message,
+          stack:
+            process.env.NODE_ENV === "development" ? error.stack : undefined,
+        });
       }
     });
 
