@@ -34,6 +34,8 @@ async function run() {
     const teamMembersCollection = db.collection("teamMembers");
     const testimonialsCollection = db.collection("testimonials");
     const contactsCollection = db.collection("contacts");
+    const repliesCollection = db.collection("replies");
+    const mediaCollection = db.collection("media");
 
     // Analytics Collections
     const analyticsCollection = db.collection("analytics");
@@ -1127,9 +1129,13 @@ async function run() {
       try {
         console.log("📧 POST /api/contacts/:id/reply - Request received");
         const { id } = req.params;
-        const { message, adminEmail = "admin@aminwebtech.com" } = req.body;
+        const {
+          message,
+          adminEmail = "admin@aminwebtech.com",
+          trackingId,
+        } = req.body;
 
-        console.log("Reply data:", { id, message, adminEmail });
+        console.log("Reply data:", { id, message, adminEmail, trackingId });
 
         // Get the contact first
         const contact = await contactsCollection.findOne({
@@ -1140,8 +1146,7 @@ async function run() {
           return res.status(404).send({ error: "Contact not found" });
         }
 
-        // In a real application, you would send an actual email here
-        // For now, we'll simulate the email sending and store the reply
+        // Create reply record
         const replyData = {
           contactId: id,
           adminEmail,
@@ -1150,10 +1155,13 @@ async function run() {
           recipientEmail: contact.email,
           recipientName: contact.name,
           originalSubject: contact.subject,
+          trackingId: trackingId || `TRACK_${id}_${Date.now()}`,
+          method: trackingId ? "email_client" : "quick_reply",
+          status: "sent",
         };
 
-        // Store the reply in a replies collection (optional)
-        // await repliesCollection.insertOne(replyData);
+        // Store the reply in replies collection
+        await repliesCollection.insertOne(replyData);
 
         // Update the contact status to 'replied' and add reply timestamp
         await contactsCollection.updateOne(
@@ -1166,23 +1174,20 @@ async function run() {
                 message,
                 sentAt: new Date(),
                 adminEmail,
+                trackingId: replyData.trackingId,
+                method: replyData.method,
               },
               updatedAt: new Date(),
             },
           }
         );
 
-        console.log("✅ Reply sent and contact updated");
-
-        // In a real application, integrate with email service like:
-        // - SendGrid
-        // - Mailgun
-        // - AWS SES
-        // - Nodemailer with SMTP
+        console.log("✅ Reply tracked and contact updated");
 
         res.send({
           success: true,
-          message: "Reply sent successfully",
+          message: "Reply tracked successfully",
+          trackingId: replyData.trackingId,
           replyData: {
             ...replyData,
             // Don't send sensitive data back
@@ -1193,11 +1198,112 @@ async function run() {
         console.error("❌ Reply to contact error:", error);
         console.error("Error stack:", error.stack);
         res.status(500).send({
-          error: "Failed to send reply",
+          error: "Failed to track reply",
           details: error.message,
           stack:
             process.env.NODE_ENV === "development" ? error.stack : undefined,
         });
+      }
+    });
+
+    // POST webhook for email replies (for future email service integration)
+    app.post("/api/contacts/email-webhook", async (req, res) => {
+      try {
+        console.log("📨 Email webhook received:", req.body);
+
+        const {
+          from,
+          to,
+          subject,
+          text,
+          html,
+          messageId,
+          inReplyTo,
+          references,
+        } = req.body;
+
+        // Extract tracking ID from subject
+        const trackingMatch = subject.match(/\[TRACK_([a-f0-9]+)_(\d+)\]/);
+
+        if (trackingMatch) {
+          const contactId = trackingMatch[1];
+          const timestamp = trackingMatch[2];
+
+          console.log("📧 Processing email reply for contact:", contactId);
+
+          // Find the contact
+          const contact = await contactsCollection.findOne({
+            _id: new ObjectId(contactId),
+          });
+
+          if (contact) {
+            // Create reply record for received email
+            const emailReplyData = {
+              contactId,
+              fromEmail: from,
+              toEmail: to,
+              subject,
+              message: text || html,
+              receivedAt: new Date(),
+              messageId,
+              inReplyTo,
+              references,
+              trackingId: `TRACK_${contactId}_${timestamp}`,
+              method: "email_received",
+              status: "received",
+            };
+
+            // Store the received email reply
+            await repliesCollection.insertOne(emailReplyData);
+
+            // Update contact with received reply info
+            await contactsCollection.updateOne(
+              { _id: new ObjectId(contactId) },
+              {
+                $set: {
+                  status: "replied",
+                  lastEmailReply: {
+                    from,
+                    subject,
+                    receivedAt: new Date(),
+                    messageId,
+                  },
+                  updatedAt: new Date(),
+                },
+              }
+            );
+
+            console.log("✅ Email reply processed and stored");
+
+            res.send({ success: true, message: "Email reply processed" });
+          } else {
+            console.log("❌ Contact not found for tracking ID");
+            res.status(404).send({ error: "Contact not found" });
+          }
+        } else {
+          console.log("❌ No tracking ID found in email subject");
+          res.status(400).send({ error: "No tracking ID found" });
+        }
+      } catch (error) {
+        console.error("❌ Email webhook error:", error);
+        res.status(500).send({ error: "Failed to process email webhook" });
+      }
+    });
+
+    // GET replies for a contact
+    app.get("/api/contacts/:id/replies", async (req, res) => {
+      try {
+        const { id } = req.params;
+
+        const replies = await repliesCollection
+          .find({ contactId: id })
+          .sort({ sentAt: -1, receivedAt: -1 })
+          .toArray();
+
+        res.send(replies);
+      } catch (error) {
+        console.error("Get replies error:", error);
+        res.status(500).send({ error: "Failed to fetch replies" });
       }
     });
 
@@ -1612,6 +1718,274 @@ async function run() {
       } catch (error) {
         res.status(500).send({ error: "Authentication failed" });
       }
+    });
+
+    // ----------------Media Management API -----------------
+
+    // GET all media files with pagination and filters
+    app.get("/api/media", async (req, res) => {
+      try {
+        console.log("📁 GET /api/media - Request received");
+
+        const {
+          page = 1,
+          limit = 20,
+          search = "",
+          type = "",
+          sortBy = "createdAt",
+          sortOrder = "desc",
+        } = req.query;
+
+        const skip = (parseInt(page) - 1) * parseInt(limit);
+
+        // Build filter query
+        let filter = {};
+
+        if (search) {
+          filter.$or = [
+            { name: { $regex: search, $options: "i" } },
+            { originalName: { $regex: search, $options: "i" } },
+            { alt: { $regex: search, $options: "i" } },
+          ];
+        }
+
+        if (type && type !== "All Types") {
+          filter.type = type;
+        }
+
+        // Build sort query
+        const sort = {};
+        sort[sortBy] = sortOrder === "desc" ? -1 : 1;
+
+        console.log("Media filter:", filter);
+        console.log("Media sort:", sort);
+
+        const [media, total] = await Promise.all([
+          mediaCollection
+            .find(filter)
+            .sort(sort)
+            .skip(skip)
+            .limit(parseInt(limit))
+            .toArray(),
+          mediaCollection.countDocuments(filter),
+        ]);
+
+        // Calculate stats
+        const stats = await mediaCollection
+          .aggregate([
+            {
+              $group: {
+                _id: "$type",
+                count: { $sum: 1 },
+                totalSize: { $sum: "$size" },
+              },
+            },
+          ])
+          .toArray();
+
+        const statsObj = {
+          total: total,
+          images: 0,
+          documents: 0,
+          videos: 0,
+          audio: 0,
+          totalSize: 0,
+        };
+
+        stats.forEach((stat) => {
+          statsObj.totalSize += stat.totalSize;
+          switch (stat._id) {
+            case "Image":
+              statsObj.images = stat.count;
+              break;
+            case "Document":
+              statsObj.documents = stat.count;
+              break;
+            case "Video":
+              statsObj.videos = stat.count;
+              break;
+            case "Audio":
+              statsObj.audio = stat.count;
+              break;
+          }
+        });
+
+        console.log("✅ Media fetched successfully:", {
+          total,
+          mediaCount: media.length,
+        });
+
+        res.send({
+          media,
+          stats: statsObj,
+          total,
+          page: parseInt(page),
+          limit: parseInt(limit),
+          totalPages: Math.ceil(total / parseInt(limit)),
+        });
+      } catch (error) {
+        console.error("❌ Get media error:", error);
+        res.status(500).send({ error: "Failed to fetch media files" });
+      }
+    });
+
+    // POST upload media file
+    app.post("/api/media", async (req, res) => {
+      try {
+        console.log("📤 POST /api/media - Upload request received");
+
+        const {
+          name,
+          originalName,
+          type,
+          size,
+          url,
+          alt,
+          mimeType,
+          width,
+          height,
+        } = req.body;
+
+        // Validate required fields
+        if (!name || !type || !size) {
+          return res.status(400).send({
+            error: "Missing required fields: name, type, size",
+          });
+        }
+
+        const mediaData = {
+          name: name.trim(),
+          originalName: originalName || name,
+          type,
+          size: parseInt(size),
+          url: url || null,
+          alt: alt || "",
+          mimeType: mimeType || "",
+          width: width ? parseInt(width) : null,
+          height: height ? parseInt(height) : null,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        };
+
+        console.log("Creating media file:", mediaData);
+
+        const result = await mediaCollection.insertOne(mediaData);
+
+        console.log("✅ Media file created:", result.insertedId);
+
+        res.status(201).send({
+          _id: result.insertedId,
+          ...mediaData,
+          message: "Media file uploaded successfully",
+        });
+      } catch (error) {
+        console.error("❌ Upload media error:", error);
+        res.status(500).send({ error: "Failed to upload media file" });
+      }
+    });
+
+    // PUT update media file
+    app.put("/api/media/:id", async (req, res) => {
+      try {
+        const { id } = req.params;
+        const updateData = { ...req.body };
+        delete updateData._id;
+        updateData.updatedAt = new Date();
+
+        console.log("📝 Updating media file:", id, updateData);
+
+        const result = await mediaCollection.updateOne(
+          { _id: new ObjectId(id) },
+          { $set: updateData }
+        );
+
+        if (result.matchedCount === 0) {
+          return res.status(404).send({ error: "Media file not found" });
+        }
+
+        console.log("✅ Media file updated:", id);
+        res.send({ message: "Media file updated successfully" });
+      } catch (error) {
+        console.error("❌ Update media error:", error);
+        res.status(500).send({ error: "Failed to update media file" });
+      }
+    });
+
+    // DELETE single media file
+    app.delete("/api/media/:id", async (req, res) => {
+      try {
+        const { id } = req.params;
+
+        console.log("🗑️ Deleting media file:", id);
+
+        const result = await mediaCollection.deleteOne({
+          _id: new ObjectId(id),
+        });
+
+        if (result.deletedCount === 0) {
+          return res.status(404).send({ error: "Media file not found" });
+        }
+
+        console.log("✅ Media file deleted:", id);
+        res.send({ message: "Media file deleted successfully" });
+      } catch (error) {
+        console.error("❌ Delete media error:", error);
+        res.status(500).send({ error: "Failed to delete media file" });
+      }
+    });
+
+    // DELETE multiple media files
+    app.delete("/api/media", async (req, res) => {
+      try {
+        const { ids } = req.body;
+
+        if (!ids || !Array.isArray(ids) || ids.length === 0) {
+          return res.status(400).send({ error: "Invalid or empty ids array" });
+        }
+
+        console.log("🗑️ Deleting multiple media files:", ids);
+
+        const objectIds = ids.map((id) => new ObjectId(id));
+        const result = await mediaCollection.deleteMany({
+          _id: { $in: objectIds },
+        });
+
+        console.log("✅ Media files deleted:", result.deletedCount);
+
+        res.send({
+          message: `${result.deletedCount} media files deleted successfully`,
+          deletedCount: result.deletedCount,
+        });
+      } catch (error) {
+        console.error("❌ Delete multiple media error:", error);
+        res.status(500).send({ error: "Failed to delete media files" });
+      }
+    });
+
+    // GET media file by ID
+    app.get("/api/media/:id", async (req, res) => {
+      try {
+        const { id } = req.params;
+
+        console.log("📁 Getting media file:", id);
+
+        const media = await mediaCollection.findOne({ _id: new ObjectId(id) });
+
+        if (!media) {
+          return res.status(404).send({ error: "Media file not found" });
+        }
+
+        console.log("✅ Media file found:", media.name);
+        res.send(media);
+      } catch (error) {
+        console.error("❌ Get media by ID error:", error);
+        res.status(500).send({ error: "Failed to fetch media file" });
+      }
+    });
+
+    // Test endpoint for media
+    app.get("/api/media/test", (req, res) => {
+      res.send({ message: "Media API is working!", timestamp: new Date() });
     });
   } finally {
     // Ensures that the client will close when you finish/error
