@@ -31,6 +31,88 @@ async function run() {
     const servicesCollection = db.collection("services");
     const projectsCollection = db.collection("projects");
     const blogsCollection = db.collection("blogs");
+    const teamMembersCollection = db.collection("teamMembers");
+    const testimonialsCollection = db.collection("testimonials");
+
+    // Seed testimonials data if collection is empty
+    const testimonialsCount = await testimonialsCollection.countDocuments();
+    if (testimonialsCount === 0) {
+      const sampleTestimonials = [
+        {
+          name: "Sarah Johnson",
+          company: "Global Tech Solutions",
+          position: "CTO",
+          rating: 5,
+          testimonial:
+            "Professional team with great attention to detail. Their expertise in web development exceeded our expectations. Will definitely work with them again on future projects.",
+          featured: true,
+          active: true,
+          displayOrder: 1,
+          date: "2024-12-24",
+          createdAt: new Date("2024-12-24"),
+          updatedAt: new Date("2024-12-24"),
+        },
+        {
+          name: "David Chen",
+          company: "Innovate Inc",
+          position: "Product Manager",
+          rating: 4,
+          testimonial:
+            "The platform they built is intuitive and easy to use. The support team was very helpful throughout the development process. Great communication and timely delivery.",
+          featured: false,
+          active: true,
+          displayOrder: 2,
+          date: "2024-12-20",
+          createdAt: new Date("2024-12-20"),
+          updatedAt: new Date("2024-12-20"),
+        },
+        {
+          name: "Emily Rodriguez",
+          company: "StartupXYZ",
+          position: "Founder & CEO",
+          rating: 5,
+          testimonial:
+            "Exceeded our expectations in every way. The team delivered a high-quality solution that perfectly matched our requirements. Highly recommend their services to anyone looking for professional web development.",
+          featured: true,
+          active: true,
+          displayOrder: 3,
+          date: "2024-12-18",
+          createdAt: new Date("2024-12-18"),
+          updatedAt: new Date("2024-12-18"),
+        },
+        {
+          name: "Michael Thompson",
+          company: "TechCorp Ltd",
+          position: "Lead Developer",
+          rating: 5,
+          testimonial:
+            "Outstanding work quality and timely delivery. The code is clean, well-documented, and follows best practices. Great communication throughout the project lifecycle.",
+          featured: false,
+          active: true,
+          displayOrder: 4,
+          date: "2024-12-15",
+          createdAt: new Date("2024-12-15"),
+          updatedAt: new Date("2024-12-15"),
+        },
+        {
+          name: "Lisa Wang",
+          company: "Digital Dynamics",
+          position: "Marketing Director",
+          rating: 4,
+          testimonial:
+            "Professional service and excellent results. The website they created has significantly improved our online presence and user engagement. Very satisfied with the outcome.",
+          featured: false,
+          active: true,
+          displayOrder: 5,
+          date: "2024-12-10",
+          createdAt: new Date("2024-12-10"),
+          updatedAt: new Date("2024-12-10"),
+        },
+      ];
+
+      await testimonialsCollection.insertMany(sampleTestimonials);
+      console.log("✅ Sample testimonials data seeded successfully");
+    }
 
     // Analytics Collections
     const analyticsCollection = db.collection("analytics");
@@ -387,6 +469,376 @@ async function run() {
       } catch (error) {
         console.error("Update blog views error:", error);
         res.status(500).send({ error: "Failed to update blog views" });
+      }
+    });
+
+    // ----------------Team Members Related API -----------------
+    // GET team members with pagination and filters
+    app.get("/team-members", async (req, res) => {
+      try {
+        const { page = 1, limit = 10, search = "", active = "" } = req.query;
+
+        const skip = (parseInt(page) - 1) * parseInt(limit);
+
+        // Build filter query
+        let filter = {};
+
+        if (search) {
+          filter.$or = [
+            { name: { $regex: search, $options: "i" } },
+            { position: { $regex: search, $options: "i" } },
+            { email: { $regex: search, $options: "i" } },
+            { expertise: { $in: [new RegExp(search, "i")] } },
+          ];
+        }
+
+        if (active && active !== "all") {
+          filter.isActive = active === "true";
+        }
+
+        // Get team members with pagination
+        const teamMembers = await teamMembersCollection
+          .find(filter)
+          .sort({ displayOrder: 1, createdAt: -1 })
+          .skip(skip)
+          .limit(parseInt(limit))
+          .toArray();
+
+        // Get total count for pagination
+        const total = await teamMembersCollection.countDocuments(filter);
+
+        res.send({
+          teamMembers,
+          total,
+          page: parseInt(page),
+          limit: parseInt(limit),
+          totalPages: Math.ceil(total / parseInt(limit)),
+        });
+      } catch (error) {
+        console.error("Get team members error:", error);
+        res.status(500).send({ error: "Failed to fetch team members" });
+      }
+    });
+
+    // GET single team member by ID
+    app.get("/team-members/:id", async (req, res) => {
+      try {
+        const { id } = req.params;
+        const teamMember = await teamMembersCollection.findOne({
+          _id: new ObjectId(id),
+        });
+
+        if (!teamMember) {
+          return res.status(404).send({ error: "Team member not found" });
+        }
+
+        res.send(teamMember);
+      } catch (error) {
+        console.error("Get team member error:", error);
+        res.status(500).send({ error: "Failed to fetch team member" });
+      }
+    });
+
+    // POST create new team member
+    app.post("/team-members", async (req, res) => {
+      try {
+        const teamMember = {
+          ...req.body,
+          isActive: req.body.isActive !== undefined ? req.body.isActive : true,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        };
+
+        const result = await teamMembersCollection.insertOne(teamMember);
+        res.send(result);
+      } catch (error) {
+        console.error("Create team member error:", error);
+        res.status(500).send({ error: "Failed to create team member" });
+      }
+    });
+
+    // PUT update team member
+    app.put("/team-members/:id", async (req, res) => {
+      try {
+        const { id } = req.params;
+        const updateData = {
+          ...req.body,
+          updatedAt: new Date(),
+        };
+
+        const result = await teamMembersCollection.updateOne(
+          { _id: new ObjectId(id) },
+          { $set: updateData }
+        );
+
+        if (result.matchedCount === 0) {
+          return res.status(404).send({ error: "Team member not found" });
+        }
+
+        res.send(result);
+      } catch (error) {
+        console.error("Update team member error:", error);
+        res.status(500).send({ error: "Failed to update team member" });
+      }
+    });
+
+    // DELETE team member
+    app.delete("/team-members/:id", async (req, res) => {
+      try {
+        const { id } = req.params;
+        const result = await teamMembersCollection.deleteOne({
+          _id: new ObjectId(id),
+        });
+
+        if (result.deletedCount === 0) {
+          return res.status(404).send({ error: "Team member not found" });
+        }
+
+        res.send({ message: "Team member deleted successfully" });
+      } catch (error) {
+        console.error("Delete team member error:", error);
+        res.status(500).send({ error: "Failed to delete team member" });
+      }
+    });
+
+    // ----------------Testimonials Related API -----------------
+    // GET testimonials with pagination and filters
+    app.get("/api/testimonials", async (req, res) => {
+      try {
+        const {
+          page = 1,
+          limit = 10,
+          search = "",
+          featured = "",
+          active = "",
+        } = req.query;
+
+        const skip = (parseInt(page) - 1) * parseInt(limit);
+
+        // Build filter query
+        let filter = {};
+
+        if (search) {
+          filter.$or = [
+            { name: { $regex: search, $options: "i" } },
+            { company: { $regex: search, $options: "i" } },
+            { position: { $regex: search, $options: "i" } },
+            { testimonial: { $regex: search, $options: "i" } },
+          ];
+        }
+
+        if (featured && featured !== "all") {
+          filter.featured = featured === "true";
+        }
+
+        if (active && active !== "all") {
+          filter.active = active === "true";
+        }
+
+        // Get testimonials with pagination
+        const testimonials = await testimonialsCollection
+          .find(filter)
+          .sort({ displayOrder: 1, createdAt: -1 })
+          .skip(skip)
+          .limit(parseInt(limit))
+          .toArray();
+
+        // Get total count for pagination
+        const total = await testimonialsCollection.countDocuments(filter);
+
+        res.send({
+          testimonials,
+          total,
+          page: parseInt(page),
+          limit: parseInt(limit),
+          totalPages: Math.ceil(total / parseInt(limit)),
+        });
+      } catch (error) {
+        console.error("Get testimonials error:", error);
+        res.status(500).send({ error: "Failed to fetch testimonials" });
+      }
+    });
+
+    // GET all testimonials (for frontend display)
+    app.get("/testimonials", async (req, res) => {
+      try {
+        const { featured = "", active = "true" } = req.query;
+
+        let filter = {};
+
+        if (featured && featured !== "all") {
+          filter.featured = featured === "true";
+        }
+
+        if (active && active !== "all") {
+          filter.active = active === "true";
+        }
+
+        const testimonials = await testimonialsCollection
+          .find(filter)
+          .sort({ displayOrder: 1, createdAt: -1 })
+          .toArray();
+
+        res.send(testimonials);
+      } catch (error) {
+        console.error("Get testimonials error:", error);
+        res.status(500).send({ error: "Failed to fetch testimonials" });
+      }
+    });
+
+    // GET single testimonial by ID
+    app.get("/api/testimonials/:id", async (req, res) => {
+      try {
+        const { id } = req.params;
+        const testimonial = await testimonialsCollection.findOne({
+          _id: new ObjectId(id),
+        });
+
+        if (!testimonial) {
+          return res.status(404).send({ error: "Testimonial not found" });
+        }
+
+        res.send(testimonial);
+      } catch (error) {
+        console.error("Get testimonial error:", error);
+        res.status(500).send({ error: "Failed to fetch testimonial" });
+      }
+    });
+
+    // POST create new testimonial
+    app.post("/api/testimonials", async (req, res) => {
+      try {
+        const testimonial = {
+          ...req.body,
+          rating: parseInt(req.body.rating) || 5,
+          displayOrder: parseInt(req.body.displayOrder) || 0,
+          featured: req.body.featured || false,
+          active: req.body.active !== undefined ? req.body.active : true,
+          date: new Date().toISOString().split("T")[0],
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        };
+
+        const result = await testimonialsCollection.insertOne(testimonial);
+
+        // Return the created testimonial with the new ID
+        const createdTestimonial = await testimonialsCollection.findOne({
+          _id: result.insertedId,
+        });
+        res.send(createdTestimonial);
+      } catch (error) {
+        console.error("Create testimonial error:", error);
+        res.status(500).send({ error: "Failed to create testimonial" });
+      }
+    });
+
+    // PUT update testimonial
+    app.put("/api/testimonials/:id", async (req, res) => {
+      try {
+        const { id } = req.params;
+        const updateData = {
+          ...req.body,
+          rating: parseInt(req.body.rating) || 5,
+          displayOrder: parseInt(req.body.displayOrder) || 0,
+          updatedAt: new Date(),
+        };
+
+        const result = await testimonialsCollection.updateOne(
+          { _id: new ObjectId(id) },
+          { $set: updateData }
+        );
+
+        if (result.matchedCount === 0) {
+          return res.status(404).send({ error: "Testimonial not found" });
+        }
+
+        // Return the updated testimonial
+        const updatedTestimonial = await testimonialsCollection.findOne({
+          _id: new ObjectId(id),
+        });
+        res.send(updatedTestimonial);
+      } catch (error) {
+        console.error("Update testimonial error:", error);
+        res.status(500).send({ error: "Failed to update testimonial" });
+      }
+    });
+
+    // DELETE testimonial
+    app.delete("/api/testimonials/:id", async (req, res) => {
+      try {
+        const { id } = req.params;
+        const result = await testimonialsCollection.deleteOne({
+          _id: new ObjectId(id),
+        });
+
+        if (result.deletedCount === 0) {
+          return res.status(404).send({ error: "Testimonial not found" });
+        }
+
+        res.send({ message: "Testimonial deleted successfully" });
+      } catch (error) {
+        console.error("Delete testimonial error:", error);
+        res.status(500).send({ error: "Failed to delete testimonial" });
+      }
+    });
+
+    // PUT toggle testimonial featured status
+    app.put("/api/testimonials/:id/featured", async (req, res) => {
+      try {
+        const { id } = req.params;
+        const { featured } = req.body;
+
+        const result = await testimonialsCollection.updateOne(
+          { _id: new ObjectId(id) },
+          {
+            $set: {
+              featured: featured,
+              updatedAt: new Date(),
+            },
+          }
+        );
+
+        if (result.matchedCount === 0) {
+          return res.status(404).send({ error: "Testimonial not found" });
+        }
+
+        res.send({
+          message: "Testimonial featured status updated successfully",
+        });
+      } catch (error) {
+        console.error("Update testimonial featured status error:", error);
+        res
+          .status(500)
+          .send({ error: "Failed to update testimonial featured status" });
+      }
+    });
+
+    // PUT toggle testimonial active status
+    app.put("/api/testimonials/:id/active", async (req, res) => {
+      try {
+        const { id } = req.params;
+        const { active } = req.body;
+
+        const result = await testimonialsCollection.updateOne(
+          { _id: new ObjectId(id) },
+          {
+            $set: {
+              active: active,
+              updatedAt: new Date(),
+            },
+          }
+        );
+
+        if (result.matchedCount === 0) {
+          return res.status(404).send({ error: "Testimonial not found" });
+        }
+
+        res.send({ message: "Testimonial active status updated successfully" });
+      } catch (error) {
+        console.error("Update testimonial active status error:", error);
+        res
+          .status(500)
+          .send({ error: "Failed to update testimonial active status" });
       }
     });
 
