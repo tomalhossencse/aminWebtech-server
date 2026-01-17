@@ -1996,10 +1996,17 @@ async function run() {
           type,
           size,
           url,
+          display_url,
+          thumb_url,
+          medium_url,
+          delete_url,
           alt,
           mimeType,
           width,
           height,
+          imgbb_id,
+          imgbb_filename,
+          storage_provider,
         } = req.body;
 
         // Validate required fields
@@ -2015,15 +2022,26 @@ async function run() {
           type,
           size: parseInt(size),
           url: url || null,
+          display_url: display_url || url || null,
+          thumb_url: thumb_url || null,
+          medium_url: medium_url || null,
+          delete_url: delete_url || null,
           alt: alt || "",
           mimeType: mimeType || "",
           width: width ? parseInt(width) : null,
           height: height ? parseInt(height) : null,
+          imgbb_id: imgbb_id || null,
+          imgbb_filename: imgbb_filename || null,
+          storage_provider: storage_provider || "local",
           createdAt: new Date(),
           updatedAt: new Date(),
         };
 
-        console.log("Creating media file:", mediaData);
+        console.log("Creating media file:", {
+          ...mediaData,
+          storage_provider: mediaData.storage_provider,
+          imgbb_id: mediaData.imgbb_id ? "Present" : "None",
+        });
 
         const result = await mediaCollection.insertOne(mediaData);
 
@@ -2032,7 +2050,9 @@ async function run() {
         res.status(201).send({
           _id: result.insertedId,
           ...mediaData,
-          message: "Media file uploaded successfully",
+          message: `Media file uploaded successfully${
+            storage_provider === "imgbb" ? " to ImgBB" : ""
+          }`,
         });
       } catch (error) {
         console.error("❌ Upload media error:", error);
