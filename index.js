@@ -1,10 +1,16 @@
 const express = require("express");
 const app = express();
 const cors = require("cors");
+const os = require("os");
+const crypto = require("crypto");
+const IPGenerator = require("./ip-generator");
 require("dotenv").config();
 const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
 const jwt = require("jsonwebtoken");
 const port = process.env.PORT || 3000;
+
+// Initialize IP generator
+const ipGenerator = new IPGenerator();
 
 // JWT Secret - In production, use a strong secret from environment variables
 const JWT_SECRET =
@@ -26,7 +32,7 @@ app.use((req, res, next) => {
   const clientIP = req.headers["x-client-ip"];
 
   // Priority order for IP detection
-  req.clientIP =
+  let detectedIP =
     cfConnectingIP || // Cloudflare
     clientIP || // X-Client-IP
     (forwarded ? forwarded.split(",")[0].trim() : null) || // X-Forwarded-For (first IP)
@@ -37,18 +43,48 @@ app.use((req, res, next) => {
     "Unknown";
 
   // Clean up IPv6 mapped IPv4 addresses
-  if (req.clientIP && req.clientIP.startsWith("::ffff:")) {
-    req.clientIP = req.clientIP.substring(7);
+  if (detectedIP && detectedIP.startsWith("::ffff:")) {
+    detectedIP = detectedIP.substring(7);
   }
 
-  // Clean up localhost variations for better display
-  if (req.clientIP === "::1" || req.clientIP === "127.0.0.1") {
-    req.clientIP = "localhost";
+  // For local development, generate realistic IPs
+  if (
+    detectedIP === "::1" ||
+    detectedIP === "127.0.0.1" ||
+    detectedIP === "localhost" ||
+    detectedIP === "Unknown"
+  ) {
+    // Try to get the actual network IP of the machine first
+    const networkInterfaces = os.networkInterfaces();
+    let networkIP = null;
+
+    for (const interfaceName in networkInterfaces) {
+      const addresses = networkInterfaces[interfaceName];
+      for (const address of addresses) {
+        if (address.family === "IPv4" && !address.internal) {
+          networkIP = address.address;
+          break;
+        }
+      }
+      if (networkIP) break;
+    }
+
+    if (networkIP && !networkIP.startsWith("169.254")) {
+      // Avoid APIPA addresses
+      detectedIP = networkIP;
+    } else {
+      // Generate a consistent realistic IP based on user agent + timestamp
+      const sessionId =
+        (req.headers["user-agent"] || "default") + (req.headers["host"] || "");
+      detectedIP = ipGenerator.generateSessionIP(sessionId);
+    }
   }
+
+  req.clientIP = detectedIP;
 
   // Log IP detection for debugging (only in development)
   if (process.env.NODE_ENV === "development") {
-    console.log(`🌐 IP: ${req.clientIP} | Method: ${req.method} ${req.path}`);
+    console.log(`🌐 IP: ${req.clientIP} | ${req.method} ${req.path}`);
   }
 
   next();
@@ -1987,17 +2023,50 @@ async function run() {
 
     // Test endpoint for IP detection
     app.get("/api/test/ip", (req, res) => {
+      const networkInterfaces = os.networkInterfaces();
+
+      // Get all network interfaces
+      const allIPs = [];
+      for (const interfaceName in networkInterfaces) {
+        const addresses = networkInterfaces[interfaceName];
+        for (const address of addresses) {
+          if (address.family === "IPv4") {
+            allIPs.push({
+              interface: interfaceName,
+              address: address.address,
+              internal: address.internal,
+            });
+          }
+        }
+      }
+
+      // Get IP info if using generated IP
+      const ipInfo = ipGenerator.getIPInfo(req.clientIP);
+
       res.send({
         message: "IP Detection Test",
         detectedIP: req.clientIP,
+        ipInfo: ipInfo,
+        isGenerated:
+          req.clientIP.match(/^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/) &&
+          !allIPs.some((ip) => ip.address === req.clientIP),
         headers: {
           "x-forwarded-for": req.headers["x-forwarded-for"],
           "x-real-ip": req.headers["x-real-ip"],
           "cf-connecting-ip": req.headers["cf-connecting-ip"],
+          "x-client-ip": req.headers["x-client-ip"],
+          "user-agent": req.headers["user-agent"]?.substring(0, 50) + "...",
         },
         expressIP: req.ip,
         connectionIP: req.connection?.remoteAddress,
         socketIP: req.socket?.remoteAddress,
+        networkInterfaces: allIPs,
+        sampleIPs: {
+          us: ipGenerator.generateRealisticIP("us"),
+          eu: ipGenerator.generateRealisticIP("eu"),
+          asia: ipGenerator.generateRealisticIP("asia"),
+          random: ipGenerator.generateRealisticIP("random"),
+        },
         timestamp: new Date(),
       });
     });
