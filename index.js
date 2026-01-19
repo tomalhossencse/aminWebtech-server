@@ -275,8 +275,8 @@ async function run() {
       }
     });
 
-    // POST Services (Admin only)
-    app.post("/services", verifyAdmin, async (req, res) => {
+    // POST Services
+    app.post("/services", async (req, res) => {
       try {
         const service = req.body;
         const result = await servicesCollection.insertOne(service);
@@ -287,7 +287,7 @@ async function run() {
     });
 
     // ----------------Projects Related API -----------------
-    // GET projects with pagination and filters (Public - for frontend display)
+    // GET projects with pagination and filters
     app.get("/projects", async (req, res) => {
       try {
         const {
@@ -347,66 +347,6 @@ async function run() {
       }
     });
 
-    // GET projects for admin management (Admin only)
-    app.get("/api/admin/projects", verifyAdmin, async (req, res) => {
-      try {
-        const {
-          page = 1,
-          limit = 10,
-          search = "",
-          status = "",
-          category = "",
-        } = req.query;
-
-        const skip = (parseInt(page) - 1) * parseInt(limit);
-
-        // Build filter query
-        let filter = {};
-
-        if (search) {
-          filter.$or = [
-            { title: { $regex: search, $options: "i" } },
-            { description: { $regex: search, $options: "i" } },
-            { clientName: { $regex: search, $options: "i" } },
-          ];
-        }
-
-        if (status && status !== "All Status") {
-          if (status === "Active") {
-            filter.isActive = true;
-          } else if (status === "Inactive") {
-            filter.isActive = false;
-          }
-        }
-
-        if (category && category !== "All Categories") {
-          filter.category = category;
-        }
-
-        // Get projects with pagination
-        const projects = await projectsCollection
-          .find(filter)
-          .sort({ createdAt: -1 })
-          .skip(skip)
-          .limit(parseInt(limit))
-          .toArray();
-
-        // Get total count for pagination
-        const total = await projectsCollection.countDocuments(filter);
-
-        res.send({
-          projects,
-          total,
-          page: parseInt(page),
-          limit: parseInt(limit),
-          totalPages: Math.ceil(total / parseInt(limit)),
-        });
-      } catch (error) {
-        console.error("Get admin projects error:", error);
-        res.status(500).send({ error: "Failed to fetch projects" });
-      }
-    });
-
     // GET single project by ID
     app.get("/projects/:id", async (req, res) => {
       try {
@@ -426,8 +366,8 @@ async function run() {
       }
     });
 
-    // POST create new project (Admin only)
-    app.post("/projects", verifyAdmin, async (req, res) => {
+    // POST create new project
+    app.post("/projects", async (req, res) => {
       try {
         const project = {
           ...req.body,
@@ -443,8 +383,8 @@ async function run() {
       }
     });
 
-    // PUT update project (Admin only)
-    app.put("/projects/:id", verifyAdmin, async (req, res) => {
+    // PUT update project
+    app.put("/projects/:id", async (req, res) => {
       try {
         const { id } = req.params;
         const updateData = {
@@ -468,8 +408,8 @@ async function run() {
       }
     });
 
-    // DELETE project (Admin only)
-    app.delete("/projects/:id", verifyAdmin, async (req, res) => {
+    // DELETE project
+    app.delete("/projects/:id", async (req, res) => {
       try {
         const { id } = req.params;
         const result = await projectsCollection.deleteOne({
@@ -552,8 +492,8 @@ async function run() {
       }
     });
 
-    // POST create new blog (Admin only)
-    app.post("/blogs", verifyAdmin, async (req, res) => {
+    // POST create new blog
+    app.post("/blogs", async (req, res) => {
       try {
         const blog = {
           ...req.body,
@@ -574,8 +514,8 @@ async function run() {
       }
     });
 
-    // PUT update blog (Admin only)
-    app.put("/blogs/:id", verifyAdmin, async (req, res) => {
+    // PUT update blog
+    app.put("/blogs/:id", async (req, res) => {
       try {
         const { id } = req.params;
         const updateData = {
@@ -607,8 +547,8 @@ async function run() {
       }
     });
 
-    // DELETE blog (Admin only)
-    app.delete("/blogs/:id", verifyAdmin, async (req, res) => {
+    // DELETE blog
+    app.delete("/blogs/:id", async (req, res) => {
       try {
         const { id } = req.params;
         const result = await blogsCollection.deleteOne({
@@ -713,8 +653,8 @@ async function run() {
       }
     });
 
-    // POST create new team member (Admin only)
-    app.post("/team-members", verifyAdmin, async (req, res) => {
+    // POST create new team member
+    app.post("/team-members", async (req, res) => {
       try {
         const teamMember = {
           ...req.body,
@@ -731,8 +671,8 @@ async function run() {
       }
     });
 
-    // PUT update team member (Admin only)
-    app.put("/team-members/:id", verifyAdmin, async (req, res) => {
+    // PUT update team member
+    app.put("/team-members/:id", async (req, res) => {
       try {
         const { id } = req.params;
         const updateData = {
@@ -756,8 +696,8 @@ async function run() {
       }
     });
 
-    // DELETE team member (Admin only)
-    app.delete("/team-members/:id", verifyAdmin, async (req, res) => {
+    // DELETE team member
+    app.delete("/team-members/:id", async (req, res) => {
       try {
         const { id } = req.params;
         const result = await teamMembersCollection.deleteOne({
@@ -1016,20 +956,11 @@ async function run() {
       }
     });
 
-    // Test endpoint for contacts
-    app.get("/api/contacts/test", (req, res) => {
-      res.send({ message: "Contacts API is working!", timestamp: new Date() });
-    });
-
     // ----------------Contacts Related API -----------------
     // GET contacts with pagination and filters (Admin only)
     app.get("/api/contacts", verifyAdmin, async (req, res) => {
       try {
-        console.log("📞 GET /api/contacts - Request received");
-
         const { page = 1, limit = 10, search = "", status = "" } = req.query;
-
-        console.log("Query params:", { page, limit, search, status });
 
         const skip = (parseInt(page) - 1) * parseInt(limit);
 
@@ -1049,12 +980,6 @@ async function run() {
           filter.status = status;
         }
 
-        console.log("Filter:", filter);
-
-        // Check if collection exists and has data
-        const collectionExists = await contactsCollection.countDocuments();
-        console.log("Contacts collection document count:", collectionExists);
-
         // Get contacts with pagination
         const contacts = await contactsCollection
           .find(filter)
@@ -1062,8 +987,6 @@ async function run() {
           .skip(skip)
           .limit(parseInt(limit))
           .toArray();
-
-        console.log("Found contacts:", contacts.length);
 
         // Get total count for pagination
         const total = await contactsCollection.countDocuments(filter);
@@ -1079,28 +1002,17 @@ async function run() {
           spam: await contactsCollection.countDocuments({ status: "spam" }),
         };
 
-        console.log("Stats:", stats);
-
-        const response = {
+        res.send({
           contacts,
           total,
           page: parseInt(page),
           limit: parseInt(limit),
           totalPages: Math.ceil(total / parseInt(limit)),
           stats,
-        };
-
-        console.log("✅ Sending response:", response);
-        res.send(response);
-      } catch (error) {
-        console.error("❌ Get contacts error:", error);
-        console.error("Error stack:", error.stack);
-        res.status(500).send({
-          error: "Failed to fetch contacts",
-          details: error.message,
-          stack:
-            process.env.NODE_ENV === "development" ? error.stack : undefined,
         });
+      } catch (error) {
+        console.error("Get contacts error:", error);
+        res.status(500).send({ error: "Failed to fetch contacts" });
       }
     });
 
@@ -1126,9 +1038,6 @@ async function run() {
     // POST create new contact (from contact form)
     app.post("/api/contacts", async (req, res) => {
       try {
-        console.log("📝 POST /api/contacts - Request received");
-        console.log("Request body:", req.body);
-
         const contact = {
           ...req.body,
           status: "new",
@@ -1138,27 +1047,16 @@ async function run() {
           repliedAt: null,
         };
 
-        console.log("Contact to insert:", contact);
-
         const result = await contactsCollection.insertOne(contact);
-        console.log("Insert result:", result);
 
         // Return the created contact with the new ID
         const createdContact = await contactsCollection.findOne({
           _id: result.insertedId,
         });
-        console.log("✅ Created contact:", createdContact);
-
         res.send(createdContact);
       } catch (error) {
-        console.error("❌ Create contact error:", error);
-        console.error("Error stack:", error.stack);
-        res.status(500).send({
-          error: "Failed to create contact",
-          details: error.message,
-          stack:
-            process.env.NODE_ENV === "development" ? error.stack : undefined,
-        });
+        console.error("Create contact error:", error);
+        res.status(500).send({ error: "Failed to create contact" });
       }
     });
 
@@ -1645,6 +1543,7 @@ async function run() {
             startDate = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
         }
 
+        // Get top pages with bounce rate calculation
         const topPages = await pageViewsCollection
           .aggregate([
             {
@@ -1658,6 +1557,36 @@ async function run() {
                 views: { $sum: 1 },
                 visitors: { $addToSet: "$visitorId" },
                 totalTime: { $sum: "$timeOnPage" },
+                visitorIds: { $push: "$visitorId" },
+              },
+            },
+            {
+              $lookup: {
+                from: "pageViews",
+                let: {
+                  currentPath: "$_id",
+                  visitorIds: "$visitorIds",
+                },
+                pipeline: [
+                  {
+                    $match: {
+                      $expr: {
+                        $and: [
+                          { $in: ["$visitorId", "$$visitorIds"] },
+                          { $gte: ["$createdAt", startDate] },
+                        ],
+                      },
+                    },
+                  },
+                  {
+                    $group: {
+                      _id: "$visitorId",
+                      pageCount: { $sum: 1 },
+                      pages: { $addToSet: "$path" },
+                    },
+                  },
+                ],
+                as: "visitorPageCounts",
               },
             },
             {
@@ -1670,6 +1599,38 @@ async function run() {
                     if: { $gt: ["$views", 0] },
                     then: { $divide: ["$totalTime", "$views"] },
                     else: 0,
+                  },
+                },
+                bounceRate: {
+                  $let: {
+                    vars: {
+                      singlePageVisitors: {
+                        $size: {
+                          $filter: {
+                            input: "$visitorPageCounts",
+                            cond: { $eq: ["$$this.pageCount", 1] },
+                          },
+                        },
+                      },
+                      totalVisitors: { $size: "$visitors" },
+                    },
+                    in: {
+                      $cond: {
+                        if: { $gt: ["$$totalVisitors", 0] },
+                        then: {
+                          $multiply: [
+                            {
+                              $divide: [
+                                "$$singlePageVisitors",
+                                "$$totalVisitors",
+                              ],
+                            },
+                            100,
+                          ],
+                        },
+                        else: 0,
+                      },
+                    },
                   },
                 },
               },
@@ -1698,10 +1659,22 @@ async function run() {
           path: page.path,
           views: page.views,
           visitors: page.visitors,
-          avgTime: `${Math.round(page.avgTime / 60)}m`,
-          bounceRate: "N/A", // Calculate if needed
+          avgTime: `${Math.round(page.avgTime / 60)}m ${Math.round(
+            page.avgTime % 60
+          )}s`,
+          bounceRate: `${Math.round(page.bounceRate)}%`,
           color: colors[index % colors.length],
         }));
+
+        console.log(
+          `📊 Top pages calculated with bounce rates:`,
+          formattedPages.map((p) => ({
+            path: p.path,
+            views: p.views,
+            visitors: p.visitors,
+            bounceRate: p.bounceRate,
+          }))
+        );
 
         res.send(formattedPages);
       } catch (error) {
