@@ -14,6 +14,46 @@ const JWT_SECRET =
 app.use(express.json());
 app.use(cors());
 
+// Trust proxy for proper IP detection (important for production deployments)
+app.set("trust proxy", true);
+
+// IP detection middleware
+app.use((req, res, next) => {
+  // Get real IP address from various headers
+  const forwarded = req.headers["x-forwarded-for"];
+  const realIP = req.headers["x-real-ip"];
+  const cfConnectingIP = req.headers["cf-connecting-ip"]; // Cloudflare
+  const clientIP = req.headers["x-client-ip"];
+
+  // Priority order for IP detection
+  req.clientIP =
+    cfConnectingIP || // Cloudflare
+    clientIP || // X-Client-IP
+    (forwarded ? forwarded.split(",")[0].trim() : null) || // X-Forwarded-For (first IP)
+    realIP || // X-Real-IP
+    req.connection?.remoteAddress || // Direct connection
+    req.socket?.remoteAddress || // Socket connection
+    req.ip || // Express default
+    "Unknown";
+
+  // Clean up IPv6 mapped IPv4 addresses
+  if (req.clientIP && req.clientIP.startsWith("::ffff:")) {
+    req.clientIP = req.clientIP.substring(7);
+  }
+
+  // Clean up localhost variations for better display
+  if (req.clientIP === "::1" || req.clientIP === "127.0.0.1") {
+    req.clientIP = "localhost";
+  }
+
+  // Log IP detection for debugging (only in development)
+  if (process.env.NODE_ENV === "development") {
+    console.log(`🌐 IP: ${req.clientIP} | Method: ${req.method} ${req.path}`);
+  }
+
+  next();
+});
+
 // Admin verification middleware
 const verifyAdmin = (req, res, next) => {
   try {
@@ -1153,9 +1193,8 @@ async function run() {
             contactId: result.insertedId,
             contactEmail: contact.email,
             contactSubject: contact.subject,
-            ipAddress: req.ip,
-            userAgent: req.get("User-Agent"),
-          }
+          },
+          req
         );
 
         // Return the created contact with the new ID
@@ -1224,9 +1263,8 @@ async function run() {
             contactName: contact?.name,
             oldStatus: contact?.status,
             newStatus: status,
-            ipAddress: req.ip,
-            userAgent: req.get("User-Agent"),
-          }
+          },
+          req
         );
 
         // Return the updated contact
@@ -1329,9 +1367,8 @@ async function run() {
             contactEmail: contact.email,
             replyMethod: replyData.method,
             trackingId: replyData.trackingId,
-            ipAddress: req.ip,
-            userAgent: req.get("User-Agent"),
-          }
+          },
+          req
         );
 
         // Update the contact status to 'replied' and add reply timestamp
@@ -1898,11 +1935,15 @@ async function run() {
           const token = jwt.sign(tokenPayload, JWT_SECRET);
 
           // Log login activity
-          await logActivity("login", "User logged in", username, {
-            ipAddress: req.ip,
-            userAgent: req.get("User-Agent"),
-            loginTime: new Date(),
-          });
+          await logActivity(
+            "login",
+            "User logged in",
+            username,
+            {
+              loginTime: new Date(),
+            },
+            req
+          );
 
           console.log("✅ Login successful for admin");
 
@@ -1925,10 +1966,9 @@ async function run() {
             "Failed login attempt",
             username || "Unknown",
             {
-              ipAddress: req.ip,
-              userAgent: req.get("User-Agent"),
               reason: "Invalid credentials",
-            }
+            },
+            req
           );
 
           res.status(401).send({
@@ -1945,6 +1985,23 @@ async function run() {
       }
     });
 
+    // Test endpoint for IP detection
+    app.get("/api/test/ip", (req, res) => {
+      res.send({
+        message: "IP Detection Test",
+        detectedIP: req.clientIP,
+        headers: {
+          "x-forwarded-for": req.headers["x-forwarded-for"],
+          "x-real-ip": req.headers["x-real-ip"],
+          "cf-connecting-ip": req.headers["cf-connecting-ip"],
+        },
+        expressIP: req.ip,
+        connectionIP: req.connection?.remoteAddress,
+        socketIP: req.socket?.remoteAddress,
+        timestamp: new Date(),
+      });
+    });
+
     // ----------------Activities Related API -----------------
 
     // Helper function to log activity
@@ -1952,7 +2009,8 @@ async function run() {
       type,
       action,
       user = "System",
-      metadata = {}
+      metadata = {},
+      req = null
     ) => {
       try {
         const activity = {
@@ -1960,14 +2018,16 @@ async function run() {
           action,
           user,
           metadata,
-          ipAddress: metadata.ipAddress || "N/A",
-          userAgent: metadata.userAgent || "N/A",
+          ipAddress: req?.clientIP || metadata.ipAddress || "N/A",
+          userAgent: req?.get("User-Agent") || metadata.userAgent || "N/A",
           createdAt: new Date(),
           timestamp: new Date().toISOString(),
         };
 
         await activitiesCollection.insertOne(activity);
-        console.log(`📝 Activity logged: ${user} - ${action}`);
+        console.log(
+          `📝 Activity logged: ${user} - ${action} (IP: ${activity.ipAddress})`
+        );
       } catch (error) {
         console.error("❌ Failed to log activity:", error);
       }
@@ -2104,11 +2164,13 @@ async function run() {
             .send({ error: "Type and action are required" });
         }
 
-        await logActivity(type, action, user || req.user?.username || "Admin", {
-          ...metadata,
-          ipAddress: req.ip,
-          userAgent: req.get("User-Agent"),
-        });
+        await logActivity(
+          type,
+          action,
+          user || req.user?.username || "Admin",
+          metadata,
+          req
+        );
 
         res.send({ message: "Activity logged successfully" });
       } catch (error) {
@@ -2131,9 +2193,8 @@ async function run() {
           req.user?.username || "Admin",
           {
             deletedCount: result.deletedCount,
-            ipAddress: req.ip,
-            userAgent: req.get("User-Agent"),
-          }
+          },
+          req
         );
 
         console.log("✅ Activities cleared:", result.deletedCount);
