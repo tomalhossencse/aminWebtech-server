@@ -98,6 +98,7 @@ async function run() {
     const contactsCollection = db.collection("contacts");
     const repliesCollection = db.collection("replies");
     const mediaCollection = db.collection("media");
+    const activitiesCollection = db.collection("activities");
 
     // Analytics Collections
     const analyticsCollection = db.collection("analytics");
@@ -275,8 +276,8 @@ async function run() {
       }
     });
 
-    // POST Services
-    app.post("/services", async (req, res) => {
+    // POST Services (Admin only)
+    app.post("/services", verifyAdmin, async (req, res) => {
       try {
         const service = req.body;
         const result = await servicesCollection.insertOne(service);
@@ -287,7 +288,7 @@ async function run() {
     });
 
     // ----------------Projects Related API -----------------
-    // GET projects with pagination and filters
+    // GET projects with pagination and filters (Public - for frontend display)
     app.get("/projects", async (req, res) => {
       try {
         const {
@@ -347,6 +348,66 @@ async function run() {
       }
     });
 
+    // GET projects for admin management (Admin only)
+    app.get("/api/admin/projects", verifyAdmin, async (req, res) => {
+      try {
+        const {
+          page = 1,
+          limit = 10,
+          search = "",
+          status = "",
+          category = "",
+        } = req.query;
+
+        const skip = (parseInt(page) - 1) * parseInt(limit);
+
+        // Build filter query
+        let filter = {};
+
+        if (search) {
+          filter.$or = [
+            { title: { $regex: search, $options: "i" } },
+            { description: { $regex: search, $options: "i" } },
+            { clientName: { $regex: search, $options: "i" } },
+          ];
+        }
+
+        if (status && status !== "All Status") {
+          if (status === "Active") {
+            filter.isActive = true;
+          } else if (status === "Inactive") {
+            filter.isActive = false;
+          }
+        }
+
+        if (category && category !== "All Categories") {
+          filter.category = category;
+        }
+
+        // Get projects with pagination
+        const projects = await projectsCollection
+          .find(filter)
+          .sort({ createdAt: -1 })
+          .skip(skip)
+          .limit(parseInt(limit))
+          .toArray();
+
+        // Get total count for pagination
+        const total = await projectsCollection.countDocuments(filter);
+
+        res.send({
+          projects,
+          total,
+          page: parseInt(page),
+          limit: parseInt(limit),
+          totalPages: Math.ceil(total / parseInt(limit)),
+        });
+      } catch (error) {
+        console.error("Get admin projects error:", error);
+        res.status(500).send({ error: "Failed to fetch projects" });
+      }
+    });
+
     // GET single project by ID
     app.get("/projects/:id", async (req, res) => {
       try {
@@ -366,8 +427,8 @@ async function run() {
       }
     });
 
-    // POST create new project
-    app.post("/projects", async (req, res) => {
+    // POST create new project (Admin only)
+    app.post("/projects", verifyAdmin, async (req, res) => {
       try {
         const project = {
           ...req.body,
@@ -383,8 +444,8 @@ async function run() {
       }
     });
 
-    // PUT update project
-    app.put("/projects/:id", async (req, res) => {
+    // PUT update project (Admin only)
+    app.put("/projects/:id", verifyAdmin, async (req, res) => {
       try {
         const { id } = req.params;
         const updateData = {
@@ -408,8 +469,8 @@ async function run() {
       }
     });
 
-    // DELETE project
-    app.delete("/projects/:id", async (req, res) => {
+    // DELETE project (Admin only)
+    app.delete("/projects/:id", verifyAdmin, async (req, res) => {
       try {
         const { id } = req.params;
         const result = await projectsCollection.deleteOne({
@@ -492,8 +553,8 @@ async function run() {
       }
     });
 
-    // POST create new blog
-    app.post("/blogs", async (req, res) => {
+    // POST create new blog (Admin only)
+    app.post("/blogs", verifyAdmin, async (req, res) => {
       try {
         const blog = {
           ...req.body,
@@ -514,8 +575,8 @@ async function run() {
       }
     });
 
-    // PUT update blog
-    app.put("/blogs/:id", async (req, res) => {
+    // PUT update blog (Admin only)
+    app.put("/blogs/:id", verifyAdmin, async (req, res) => {
       try {
         const { id } = req.params;
         const updateData = {
@@ -547,8 +608,8 @@ async function run() {
       }
     });
 
-    // DELETE blog
-    app.delete("/blogs/:id", async (req, res) => {
+    // DELETE blog (Admin only)
+    app.delete("/blogs/:id", verifyAdmin, async (req, res) => {
       try {
         const { id } = req.params;
         const result = await blogsCollection.deleteOne({
@@ -653,8 +714,8 @@ async function run() {
       }
     });
 
-    // POST create new team member
-    app.post("/team-members", async (req, res) => {
+    // POST create new team member (Admin only)
+    app.post("/team-members", verifyAdmin, async (req, res) => {
       try {
         const teamMember = {
           ...req.body,
@@ -671,8 +732,8 @@ async function run() {
       }
     });
 
-    // PUT update team member
-    app.put("/team-members/:id", async (req, res) => {
+    // PUT update team member (Admin only)
+    app.put("/team-members/:id", verifyAdmin, async (req, res) => {
       try {
         const { id } = req.params;
         const updateData = {
@@ -696,8 +757,8 @@ async function run() {
       }
     });
 
-    // DELETE team member
-    app.delete("/team-members/:id", async (req, res) => {
+    // DELETE team member (Admin only)
+    app.delete("/team-members/:id", verifyAdmin, async (req, res) => {
       try {
         const { id } = req.params;
         const result = await teamMembersCollection.deleteOne({
@@ -956,11 +1017,20 @@ async function run() {
       }
     });
 
+    // Test endpoint for contacts
+    app.get("/api/contacts/test", (req, res) => {
+      res.send({ message: "Contacts API is working!", timestamp: new Date() });
+    });
+
     // ----------------Contacts Related API -----------------
     // GET contacts with pagination and filters (Admin only)
     app.get("/api/contacts", verifyAdmin, async (req, res) => {
       try {
+        console.log("📞 GET /api/contacts - Request received");
+
         const { page = 1, limit = 10, search = "", status = "" } = req.query;
+
+        console.log("Query params:", { page, limit, search, status });
 
         const skip = (parseInt(page) - 1) * parseInt(limit);
 
@@ -980,6 +1050,12 @@ async function run() {
           filter.status = status;
         }
 
+        console.log("Filter:", filter);
+
+        // Check if collection exists and has data
+        const collectionExists = await contactsCollection.countDocuments();
+        console.log("Contacts collection document count:", collectionExists);
+
         // Get contacts with pagination
         const contacts = await contactsCollection
           .find(filter)
@@ -987,6 +1063,8 @@ async function run() {
           .skip(skip)
           .limit(parseInt(limit))
           .toArray();
+
+        console.log("Found contacts:", contacts.length);
 
         // Get total count for pagination
         const total = await contactsCollection.countDocuments(filter);
@@ -1002,17 +1080,28 @@ async function run() {
           spam: await contactsCollection.countDocuments({ status: "spam" }),
         };
 
-        res.send({
+        console.log("Stats:", stats);
+
+        const response = {
           contacts,
           total,
           page: parseInt(page),
           limit: parseInt(limit),
           totalPages: Math.ceil(total / parseInt(limit)),
           stats,
-        });
+        };
+
+        console.log("✅ Sending response:", response);
+        res.send(response);
       } catch (error) {
-        console.error("Get contacts error:", error);
-        res.status(500).send({ error: "Failed to fetch contacts" });
+        console.error("❌ Get contacts error:", error);
+        console.error("Error stack:", error.stack);
+        res.status(500).send({
+          error: "Failed to fetch contacts",
+          details: error.message,
+          stack:
+            process.env.NODE_ENV === "development" ? error.stack : undefined,
+        });
       }
     });
 
@@ -1038,6 +1127,9 @@ async function run() {
     // POST create new contact (from contact form)
     app.post("/api/contacts", async (req, res) => {
       try {
+        console.log("📝 POST /api/contacts - Request received");
+        console.log("Request body:", req.body);
+
         const contact = {
           ...req.body,
           status: "new",
@@ -1047,16 +1139,41 @@ async function run() {
           repliedAt: null,
         };
 
+        console.log("Contact to insert:", contact);
+
         const result = await contactsCollection.insertOne(contact);
+        console.log("Insert result:", result);
+
+        // Log activity
+        await logActivity(
+          "create",
+          `New contact received from ${contact.name}`,
+          "System",
+          {
+            contactId: result.insertedId,
+            contactEmail: contact.email,
+            contactSubject: contact.subject,
+            ipAddress: req.ip,
+            userAgent: req.get("User-Agent"),
+          }
+        );
 
         // Return the created contact with the new ID
         const createdContact = await contactsCollection.findOne({
           _id: result.insertedId,
         });
+        console.log("✅ Created contact:", createdContact);
+
         res.send(createdContact);
       } catch (error) {
-        console.error("Create contact error:", error);
-        res.status(500).send({ error: "Failed to create contact" });
+        console.error("❌ Create contact error:", error);
+        console.error("Error stack:", error.stack);
+        res.status(500).send({
+          error: "Failed to create contact",
+          details: error.message,
+          stack:
+            process.env.NODE_ENV === "development" ? error.stack : undefined,
+        });
       }
     });
 
@@ -1093,6 +1210,24 @@ async function run() {
         if (result.matchedCount === 0) {
           return res.status(404).send({ error: "Contact not found" });
         }
+
+        // Log activity
+        const contact = await contactsCollection.findOne({
+          _id: new ObjectId(id),
+        });
+        await logActivity(
+          "update",
+          `Updated contact status to ${status}`,
+          req.user?.username || "Admin",
+          {
+            contactId: id,
+            contactName: contact?.name,
+            oldStatus: contact?.status,
+            newStatus: status,
+            ipAddress: req.ip,
+            userAgent: req.get("User-Agent"),
+          }
+        );
 
         // Return the updated contact
         const updatedContact = await contactsCollection.findOne({
@@ -1182,6 +1317,22 @@ async function run() {
 
         // Store the reply in replies collection
         await repliesCollection.insertOne(replyData);
+
+        // Log activity
+        await logActivity(
+          "action",
+          `Replied to contact from ${contact.name}`,
+          req.user?.username || "Admin",
+          {
+            contactId: id,
+            contactName: contact.name,
+            contactEmail: contact.email,
+            replyMethod: replyData.method,
+            trackingId: replyData.trackingId,
+            ipAddress: req.ip,
+            userAgent: req.get("User-Agent"),
+          }
+        );
 
         // Update the contact status to 'replied' and add reply timestamp
         await contactsCollection.updateOne(
@@ -1543,7 +1694,6 @@ async function run() {
             startDate = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
         }
 
-        // Get top pages with bounce rate calculation
         const topPages = await pageViewsCollection
           .aggregate([
             {
@@ -1557,36 +1707,6 @@ async function run() {
                 views: { $sum: 1 },
                 visitors: { $addToSet: "$visitorId" },
                 totalTime: { $sum: "$timeOnPage" },
-                visitorIds: { $push: "$visitorId" },
-              },
-            },
-            {
-              $lookup: {
-                from: "pageViews",
-                let: {
-                  currentPath: "$_id",
-                  visitorIds: "$visitorIds",
-                },
-                pipeline: [
-                  {
-                    $match: {
-                      $expr: {
-                        $and: [
-                          { $in: ["$visitorId", "$$visitorIds"] },
-                          { $gte: ["$createdAt", startDate] },
-                        ],
-                      },
-                    },
-                  },
-                  {
-                    $group: {
-                      _id: "$visitorId",
-                      pageCount: { $sum: 1 },
-                      pages: { $addToSet: "$path" },
-                    },
-                  },
-                ],
-                as: "visitorPageCounts",
               },
             },
             {
@@ -1599,38 +1719,6 @@ async function run() {
                     if: { $gt: ["$views", 0] },
                     then: { $divide: ["$totalTime", "$views"] },
                     else: 0,
-                  },
-                },
-                bounceRate: {
-                  $let: {
-                    vars: {
-                      singlePageVisitors: {
-                        $size: {
-                          $filter: {
-                            input: "$visitorPageCounts",
-                            cond: { $eq: ["$$this.pageCount", 1] },
-                          },
-                        },
-                      },
-                      totalVisitors: { $size: "$visitors" },
-                    },
-                    in: {
-                      $cond: {
-                        if: { $gt: ["$$totalVisitors", 0] },
-                        then: {
-                          $multiply: [
-                            {
-                              $divide: [
-                                "$$singlePageVisitors",
-                                "$$totalVisitors",
-                              ],
-                            },
-                            100,
-                          ],
-                        },
-                        else: 0,
-                      },
-                    },
                   },
                 },
               },
@@ -1659,22 +1747,10 @@ async function run() {
           path: page.path,
           views: page.views,
           visitors: page.visitors,
-          avgTime: `${Math.round(page.avgTime / 60)}m ${Math.round(
-            page.avgTime % 60
-          )}s`,
-          bounceRate: `${Math.round(page.bounceRate)}%`,
+          avgTime: `${Math.round(page.avgTime / 60)}m`,
+          bounceRate: "N/A", // Calculate if needed
           color: colors[index % colors.length],
         }));
-
-        console.log(
-          `📊 Top pages calculated with bounce rates:`,
-          formattedPages.map((p) => ({
-            path: p.path,
-            views: p.views,
-            visitors: p.visitors,
-            bounceRate: p.bounceRate,
-          }))
-        );
 
         res.send(formattedPages);
       } catch (error) {
@@ -1821,6 +1897,13 @@ async function run() {
 
           const token = jwt.sign(tokenPayload, JWT_SECRET);
 
+          // Log login activity
+          await logActivity("login", "User logged in", username, {
+            ipAddress: req.ip,
+            userAgent: req.get("User-Agent"),
+            loginTime: new Date(),
+          });
+
           console.log("✅ Login successful for admin");
 
           res.send({
@@ -1835,6 +1918,19 @@ async function run() {
           });
         } else {
           console.log("❌ Invalid credentials for username:", username);
+
+          // Log failed login attempt
+          await logActivity(
+            "login",
+            "Failed login attempt",
+            username || "Unknown",
+            {
+              ipAddress: req.ip,
+              userAgent: req.get("User-Agent"),
+              reason: "Invalid credentials",
+            }
+          );
+
           res.status(401).send({
             error: "Invalid credentials",
             code: "INVALID_CREDENTIALS",
@@ -1848,6 +1944,267 @@ async function run() {
         });
       }
     });
+
+    // ----------------Activities Related API -----------------
+
+    // Helper function to log activity
+    const logActivity = async (
+      type,
+      action,
+      user = "System",
+      metadata = {}
+    ) => {
+      try {
+        const activity = {
+          type, // 'login', 'action', 'create', 'update', 'delete'
+          action,
+          user,
+          metadata,
+          ipAddress: metadata.ipAddress || "N/A",
+          userAgent: metadata.userAgent || "N/A",
+          createdAt: new Date(),
+          timestamp: new Date().toISOString(),
+        };
+
+        await activitiesCollection.insertOne(activity);
+        console.log(`📝 Activity logged: ${user} - ${action}`);
+      } catch (error) {
+        console.error("❌ Failed to log activity:", error);
+      }
+    };
+
+    // GET activities with pagination and filters (Admin only)
+    app.get("/api/activities", verifyAdmin, async (req, res) => {
+      try {
+        console.log("📊 GET /api/activities - Request received");
+
+        const {
+          page = 1,
+          limit = 20,
+          search = "",
+          type = "",
+          user = "",
+          startDate = "",
+          endDate = "",
+        } = req.query;
+
+        const skip = (parseInt(page) - 1) * parseInt(limit);
+
+        // Build filter query
+        let filter = {};
+
+        if (search) {
+          filter.$or = [
+            { action: { $regex: search, $options: "i" } },
+            { user: { $regex: search, $options: "i" } },
+            { type: { $regex: search, $options: "i" } },
+          ];
+        }
+
+        if (type && type !== "all") {
+          filter.type = type;
+        }
+
+        if (user && user !== "all") {
+          filter.user = user;
+        }
+
+        if (startDate && endDate) {
+          filter.createdAt = {
+            $gte: new Date(startDate),
+            $lte: new Date(endDate),
+          };
+        }
+
+        console.log("Activities filter:", filter);
+
+        // Get activities with pagination
+        const activities = await activitiesCollection
+          .find(filter)
+          .sort({ createdAt: -1 })
+          .skip(skip)
+          .limit(parseInt(limit))
+          .toArray();
+
+        // Get total count for pagination
+        const total = await activitiesCollection.countDocuments(filter);
+
+        // Get stats
+        const stats = {
+          total: await activitiesCollection.countDocuments(),
+          login: await activitiesCollection.countDocuments({ type: "login" }),
+          action: await activitiesCollection.countDocuments({ type: "action" }),
+          create: await activitiesCollection.countDocuments({ type: "create" }),
+          update: await activitiesCollection.countDocuments({ type: "update" }),
+          delete: await activitiesCollection.countDocuments({ type: "delete" }),
+        };
+
+        console.log("✅ Activities fetched:", activities.length);
+
+        res.send({
+          activities,
+          total,
+          page: parseInt(page),
+          limit: parseInt(limit),
+          totalPages: Math.ceil(total / parseInt(limit)),
+          stats,
+        });
+      } catch (error) {
+        console.error("❌ Get activities error:", error);
+        res.status(500).send({ error: "Failed to fetch activities" });
+      }
+    });
+
+    // GET recent activities (for dashboard)
+    app.get("/api/activities/recent", verifyAdmin, async (req, res) => {
+      try {
+        console.log("📊 GET /api/activities/recent - Request received");
+
+        const { limit = 6 } = req.query;
+
+        const activities = await activitiesCollection
+          .find({})
+          .sort({ createdAt: -1 })
+          .limit(parseInt(limit))
+          .toArray();
+
+        // Format activities for frontend
+        const formattedActivities = activities.map((activity) => ({
+          id: activity._id,
+          user: activity.user,
+          action: activity.action,
+          timestamp: getTimeAgo(activity.createdAt),
+          date: activity.createdAt.toLocaleString("en-GB"),
+          ip: activity.ipAddress || "N/A",
+          type: activity.type,
+          icon: getActivityIcon(activity.type),
+          metadata: activity.metadata,
+        }));
+
+        console.log(
+          "✅ Recent activities fetched:",
+          formattedActivities.length
+        );
+
+        res.send(formattedActivities);
+      } catch (error) {
+        console.error("❌ Get recent activities error:", error);
+        res.status(500).send({ error: "Failed to fetch recent activities" });
+      }
+    });
+
+    // POST create activity (for manual logging)
+    app.post("/api/activities", verifyAdmin, async (req, res) => {
+      try {
+        const { type, action, user, metadata } = req.body;
+
+        if (!type || !action) {
+          return res
+            .status(400)
+            .send({ error: "Type and action are required" });
+        }
+
+        await logActivity(type, action, user || req.user?.username || "Admin", {
+          ...metadata,
+          ipAddress: req.ip,
+          userAgent: req.get("User-Agent"),
+        });
+
+        res.send({ message: "Activity logged successfully" });
+      } catch (error) {
+        console.error("❌ Create activity error:", error);
+        res.status(500).send({ error: "Failed to create activity" });
+      }
+    });
+
+    // DELETE clear all activities (Admin only)
+    app.delete("/api/activities/clear", verifyAdmin, async (req, res) => {
+      try {
+        console.log("🗑️ Clearing all activities...");
+
+        const result = await activitiesCollection.deleteMany({});
+
+        // Log the clear action
+        await logActivity(
+          "action",
+          "Cleared all activities",
+          req.user?.username || "Admin",
+          {
+            deletedCount: result.deletedCount,
+            ipAddress: req.ip,
+            userAgent: req.get("User-Agent"),
+          }
+        );
+
+        console.log("✅ Activities cleared:", result.deletedCount);
+
+        res.send({
+          message: "All activities cleared successfully",
+          deletedCount: result.deletedCount,
+        });
+      } catch (error) {
+        console.error("❌ Clear activities error:", error);
+        res.status(500).send({ error: "Failed to clear activities" });
+      }
+    });
+
+    // DELETE single activity (Admin only)
+    app.delete("/api/activities/:id", verifyAdmin, async (req, res) => {
+      try {
+        const { id } = req.params;
+
+        const result = await activitiesCollection.deleteOne({
+          _id: new ObjectId(id),
+        });
+
+        if (result.deletedCount === 0) {
+          return res.status(404).send({ error: "Activity not found" });
+        }
+
+        res.send({ message: "Activity deleted successfully" });
+      } catch (error) {
+        console.error("❌ Delete activity error:", error);
+        res.status(500).send({ error: "Failed to delete activity" });
+      }
+    });
+
+    // Helper functions for activities
+    const getTimeAgo = (date) => {
+      if (!date) return "Unknown";
+
+      const now = new Date();
+      const past = new Date(date);
+      const diffInMs = now - past;
+      const diffInMinutes = Math.floor(diffInMs / (1000 * 60));
+      const diffInHours = Math.floor(diffInMinutes / 60);
+      const diffInDays = Math.floor(diffInHours / 24);
+
+      if (diffInDays > 0) {
+        return `${diffInDays} day${diffInDays > 1 ? "s" : ""} ago`;
+      } else if (diffInHours > 0) {
+        return `${diffInHours} hour${diffInHours > 1 ? "s" : ""} ago`;
+      } else if (diffInMinutes > 0) {
+        return `${diffInMinutes} minute${diffInMinutes > 1 ? "s" : ""} ago`;
+      } else {
+        return "Just now";
+      }
+    };
+
+    const getActivityIcon = (type) => {
+      switch (type) {
+        case "login":
+          return "User";
+        case "create":
+          return "Plus";
+        case "update":
+          return "Edit";
+        case "delete":
+          return "Trash";
+        case "action":
+        default:
+          return "FileText";
+      }
+    };
 
     // ----------------Media Management API -----------------
 
