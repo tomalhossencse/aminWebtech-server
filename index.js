@@ -3,14 +3,94 @@ const app = express();
 const cors = require("cors");
 const os = require("os");
 const crypto = require("crypto");
-const IPGenerator = require("./ip-generator.cjs");
 require("dotenv").config();
 const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
 const jwt = require("jsonwebtoken");
 const port = process.env.PORT || 3000;
 
-// Initialize IP generator
-const ipGenerator = new IPGenerator();
+// Simple IP generation without external dependency
+const sessionIPs = new Map();
+
+const generateSessionIP = (sessionId) => {
+  if (sessionIPs.has(sessionId)) {
+    return sessionIPs.get(sessionId);
+  }
+
+  // Create a hash from the session ID
+  const hash = crypto.createHash("md5").update(sessionId).digest("hex");
+
+  // Generate IP components from hash
+  const ip1 = (parseInt(hash.substring(0, 2), 16) % 223) + 1; // 1-223 (avoid reserved ranges)
+  const ip2 = parseInt(hash.substring(2, 4), 16) % 255;
+  const ip3 = parseInt(hash.substring(4, 6), 16) % 255;
+  const ip4 = (parseInt(hash.substring(6, 8), 16) % 254) + 1; // 1-254 (avoid .0 and .255)
+
+  const ip = `${ip1}.${ip2}.${ip3}.${ip4}`;
+  sessionIPs.set(sessionId, ip);
+
+  return ip;
+};
+
+const generateRealisticIP = (type = "random") => {
+  switch (type) {
+    case "us":
+      // US IP ranges
+      const usRanges = [
+        [8, 8, 8, 8], // Google DNS
+        [208, 67, 222, 222], // OpenDNS
+        [173, 252, 0, 0], // Facebook range
+        [199, 16, 156, 0], // Twitter range
+      ];
+      const usRange = usRanges[Math.floor(Math.random() * usRanges.length)];
+      return `${usRange[0]}.${usRange[1]}.${Math.floor(Math.random() * 255)}.${
+        Math.floor(Math.random() * 254) + 1
+      }`;
+
+    case "eu":
+      // European IP ranges
+      return `${Math.floor(Math.random() * 50) + 80}.${Math.floor(
+        Math.random() * 255
+      )}.${Math.floor(Math.random() * 255)}.${
+        Math.floor(Math.random() * 254) + 1
+      }`;
+
+    case "asia":
+      // Asian IP ranges
+      return `${Math.floor(Math.random() * 50) + 110}.${Math.floor(
+        Math.random() * 255
+      )}.${Math.floor(Math.random() * 255)}.${
+        Math.floor(Math.random() * 254) + 1
+      }`;
+
+    default:
+      // Random but realistic
+      const firstOctet = Math.floor(Math.random() * 223) + 1;
+      const secondOctet = Math.floor(Math.random() * 255);
+      const thirdOctet = Math.floor(Math.random() * 255);
+      const fourthOctet = Math.floor(Math.random() * 254) + 1;
+      return `${firstOctet}.${secondOctet}.${thirdOctet}.${fourthOctet}`;
+  }
+};
+
+const getIPInfo = (ip) => {
+  const hash = crypto.createHash("md5").update(ip).digest("hex");
+  const countryIndex = parseInt(hash.substring(0, 2), 16) % 10;
+
+  const countries = [
+    { country: "United States", code: "US", city: "New York" },
+    { country: "United Kingdom", code: "GB", city: "London" },
+    { country: "Germany", code: "DE", city: "Berlin" },
+    { country: "France", code: "FR", city: "Paris" },
+    { country: "Japan", code: "JP", city: "Tokyo" },
+    { country: "Canada", code: "CA", city: "Toronto" },
+    { country: "Australia", code: "AU", city: "Sydney" },
+    { country: "Netherlands", code: "NL", city: "Amsterdam" },
+    { country: "Singapore", code: "SG", city: "Singapore" },
+    { country: "Brazil", code: "BR", city: "São Paulo" },
+  ];
+
+  return countries[countryIndex];
+};
 
 // JWT Secret - In production, use a strong secret from environment variables
 const JWT_SECRET =
@@ -76,7 +156,7 @@ app.use((req, res, next) => {
       // Generate a consistent realistic IP based on user agent + timestamp
       const sessionId =
         (req.headers["user-agent"] || "default") + (req.headers["host"] || "");
-      detectedIP = ipGenerator.generateSessionIP(sessionId);
+      detectedIP = generateSessionIP(sessionId);
     }
   }
 
@@ -261,6 +341,86 @@ async function run() {
       console.log("✅ Sample testimonials data seeded successfully");
     }
 
+    // Seed services data if collection is empty
+    const servicesCount = await servicesCollection.countDocuments();
+    if (servicesCount === 0) {
+      const sampleServices = [
+        {
+          name: "Web Development",
+          description:
+            "Custom web applications built with modern technologies and best practices.",
+          icon: "code",
+          iconBg: "bg-blue-100 dark:bg-blue-900/30",
+          iconColor: "text-blue-600 dark:text-blue-400",
+          features: 5,
+          status: "Active",
+          featured: "Yes",
+          created: new Date().toLocaleDateString("en-GB"),
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        },
+        {
+          name: "UI/UX Design",
+          description:
+            "Beautiful and intuitive user interfaces designed for optimal user experience.",
+          icon: "brush",
+          iconBg: "bg-purple-100 dark:bg-purple-900/30",
+          iconColor: "text-purple-600 dark:text-purple-400",
+          features: 4,
+          status: "Active",
+          featured: "Yes",
+          created: new Date().toLocaleDateString("en-GB"),
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        },
+        {
+          name: "E-commerce Solutions",
+          description:
+            "Complete online store solutions with payment integration and inventory management.",
+          icon: "shopping_cart",
+          iconBg: "bg-green-100 dark:bg-green-900/30",
+          iconColor: "text-green-600 dark:text-green-400",
+          features: 6,
+          status: "Active",
+          featured: "No",
+          created: new Date().toLocaleDateString("en-GB"),
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        },
+        {
+          name: "Mobile App Development",
+          description:
+            "Native and cross-platform mobile applications for iOS and Android.",
+          icon: "smartphone",
+          iconBg: "bg-pink-100 dark:bg-pink-900/30",
+          iconColor: "text-pink-600 dark:text-pink-400",
+          features: 4,
+          status: "Active",
+          featured: "Yes",
+          created: new Date().toLocaleDateString("en-GB"),
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        },
+        {
+          name: "Cloud Solutions",
+          description:
+            "Scalable cloud infrastructure and deployment solutions for modern applications.",
+          icon: "cloud",
+          iconBg: "bg-sky-100 dark:bg-sky-900/30",
+          iconColor: "text-sky-600 dark:text-sky-400",
+          features: 3,
+          status: "Active",
+          featured: "No",
+          created: new Date().toLocaleDateString("en-GB"),
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        },
+      ];
+
+      await servicesCollection.insertMany(sampleServices);
+      console.log("✅ Sample services data seeded successfully");
+    }
+
     // Seed contacts data if collection is empty (for testing)
     const contactsCount = await contactsCollection.countDocuments();
     if (contactsCount === 0) {
@@ -346,8 +506,13 @@ async function run() {
     app.get("/services", async (req, res) => {
       try {
         const services = await servicesCollection.find().toArray();
+        console.log("Fetched services count:", services.length);
+        if (services.length > 0) {
+          console.log("Sample service ID:", services[0]._id);
+        }
         res.send(services);
       } catch (error) {
+        console.error("Get services error:", error);
         res.status(500).send({ error: "Failed to fetch services" });
       }
     });
@@ -355,11 +520,106 @@ async function run() {
     // POST Services (Admin only)
     app.post("/services", verifyAdmin, async (req, res) => {
       try {
-        const service = req.body;
+        const service = {
+          ...req.body,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        };
         const result = await servicesCollection.insertOne(service);
         res.send(result);
       } catch (error) {
-        res.status(500).send({ error: "Failed to add Services" });
+        console.error("Create service error:", error);
+        res.status(500).send({ error: "Failed to add service" });
+      }
+    });
+
+    // PUT update service (Admin only)
+    app.put("/services/:id", verifyAdmin, async (req, res) => {
+      try {
+        const { id } = req.params;
+
+        // Validate ObjectId format
+        if (!ObjectId.isValid(id)) {
+          return res.status(400).send({ error: "Invalid service ID format" });
+        }
+
+        console.log("Updating service with ID:", id);
+        console.log("Update data:", req.body);
+
+        const updateData = {
+          ...req.body,
+          updatedAt: new Date(),
+        };
+
+        const result = await servicesCollection.updateOne(
+          { _id: new ObjectId(id) },
+          { $set: updateData }
+        );
+
+        console.log("Update result:", result);
+
+        if (result.matchedCount === 0) {
+          return res.status(404).send({ error: "Service not found" });
+        }
+
+        res.send(result);
+      } catch (error) {
+        console.error("Update service error:", error);
+        if (error.name === "BSONError") {
+          return res.status(400).send({ error: "Invalid service ID format" });
+        }
+        res.status(500).send({ error: "Failed to update service" });
+      }
+    });
+
+    // DELETE service (Admin only)
+    app.delete("/services/:id", verifyAdmin, async (req, res) => {
+      try {
+        const { id } = req.params;
+        const result = await servicesCollection.deleteOne({
+          _id: new ObjectId(id),
+        });
+
+        if (result.deletedCount === 0) {
+          return res.status(404).send({ error: "Service not found" });
+        }
+
+        res.send({ message: "Service deleted successfully" });
+      } catch (error) {
+        console.error("Delete service error:", error);
+        res.status(500).send({ error: "Failed to delete service" });
+      }
+    });
+
+    // GET single service by ID
+    app.get("/services/:id", async (req, res) => {
+      try {
+        const { id } = req.params;
+
+        // Validate ObjectId format
+        if (!ObjectId.isValid(id)) {
+          return res.status(400).send({ error: "Invalid service ID format" });
+        }
+
+        console.log("Fetching service with ID:", id);
+
+        const service = await servicesCollection.findOne({
+          _id: new ObjectId(id),
+        });
+
+        if (!service) {
+          console.log("Service not found for ID:", id);
+          return res.status(404).send({ error: "Service not found" });
+        }
+
+        console.log("Found service:", service.name);
+        res.send(service);
+      } catch (error) {
+        console.error("Get service error:", error);
+        if (error.name === "BSONError") {
+          return res.status(400).send({ error: "Invalid service ID format" });
+        }
+        res.status(500).send({ error: "Failed to fetch service" });
       }
     });
 
@@ -2041,7 +2301,7 @@ async function run() {
       }
 
       // Get IP info if using generated IP
-      const ipInfo = ipGenerator.getIPInfo(req.clientIP);
+      const ipInfo = getIPInfo(req.clientIP);
 
       res.send({
         message: "IP Detection Test",
@@ -2062,10 +2322,10 @@ async function run() {
         socketIP: req.socket?.remoteAddress,
         networkInterfaces: allIPs,
         sampleIPs: {
-          us: ipGenerator.generateRealisticIP("us"),
-          eu: ipGenerator.generateRealisticIP("eu"),
-          asia: ipGenerator.generateRealisticIP("asia"),
-          random: ipGenerator.generateRealisticIP("random"),
+          us: generateRealisticIP("us"),
+          eu: generateRealisticIP("eu"),
+          asia: generateRealisticIP("asia"),
+          random: generateRealisticIP("random"),
         },
         timestamp: new Date(),
       });
