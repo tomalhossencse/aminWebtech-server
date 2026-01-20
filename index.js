@@ -3,7 +3,7 @@ const app = express();
 const cors = require("cors");
 const os = require("os");
 const crypto = require("crypto");
-const IPGenerator = require("./ip-generator");
+const IPGenerator = require("./ip-generator.cjs");
 require("dotenv").config();
 const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
 const jwt = require("jsonwebtoken");
